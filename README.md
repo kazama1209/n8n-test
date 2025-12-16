@@ -44,6 +44,11 @@ $ docker compose up -d
 $ open http://localhost:5678
 ```
 
+<img width="1577" height="867" alt="スクリーンショット 2025-12-16 21 40 29" src="https://github.com/user-attachments/assets/4c782e9e-44f6-4663-a450-bc4c24f9965d" />
+
+適当なメールアドレスとパスワードなどを入力してアカウントを作成。
+
+
 ## 2. RSS Feed Trigger を設定する
 
 <img width="1730" height="845" alt="スクリーンショット 2025-12-17 0 35 34" src="https://github.com/user-attachments/assets/4c434b81-d2b4-4413-87b8-666ffce8c990" />
