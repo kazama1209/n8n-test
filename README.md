@@ -291,7 +291,7 @@ https://console.cloud.google.com/
   - Email Type
     - `HTML`
   - Message
-    - `Ktsison.output ［o］.content［o］.text｝｝`
+    - `{{$json.output[0].content[0].text}}`
 
 自分のメールアドレスに記事を要約した内容が届けば成功。
 
