@@ -24,8 +24,17 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./assets:/assets:ro
     depends_on:
       - postgres
+    restart: unless-stopped
+
+  video-api:
+    build: ./video-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./assets:/assets:ro
     restart: unless-stopped
 
 volumes:
