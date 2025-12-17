@@ -1,25 +1,32 @@
 # n8n-test
 
-n8n + OpenAI で投資ニュースを要約し、Gmail に送信する自動化ツール。
+n8n + OpenAI で投資ニュースを口語要約し、TTSで音声化 → MP4動画化 → YouTube に自動アップロードする自動化ツール。
 
 - 仮想通貨系投資ニュースの RSS を監視（1時間に1回）
-- 新着記事が出たら本文を取得
+- 新着記事が出たら記事本文を取得して整形
 - OpenAI API を使って「そのまま読み上げられる口語要約」を生成
-- Gmail に自動送信
+- Google Cloud Text-to-Speech で SSML から MP3 を生成
+- 生成した音声 + アバター画像から MP4 を生成（ローカルで構築した video-api を利用）
+- YouTube Data API v3 の Resumable Upload で動画を自動アップロード
 
 ※ ソース: https://jp.investing.com/rss/302.rss
 
 ## 全体構成（ワークフロー）
 
-<img width="1736" height="871" alt="スクリーンショット 2025-12-17 0 32 36" src="https://github.com/user-attachments/assets/462451cd-bd50-4a47-a04c-411353dce343" />
+<img width="1730" height="839" alt="スクリーンショット 2025-12-17 22 59 15" src="https://github.com/user-attachments/assets/3503f48b-d599-44aa-bf9d-2bea166dff82" />
 
 ```
 RSS Feed Trigger（投資ニュースの RSS を監視）
 → Fetch Article Link（記事のリンクを取得）
 → Extract HTML Content（HTML の中身を抽出）
-→ Extract Article Body（記事の本文を抽出）
-→ Summarize Article（記事を口語要約）
-→ Send Email（Gmail 宛にメール送信）
+→ Extract Article Body（記事本文を抽出・テキスト化）
+→ Summarize Article（OpenAI で口語要約）
+→ Create ssml（要約文を SSML に変換）
+→ Generate TTS（Google TTS で MP3 生成）
+→ Generate MP4（音声 + 画像から MP4 作成）
+→ Fetch Upload YouTube Location（Resumable Upload の Location を取得）
+→ Merge（MP4 と Location を結合）
+→ YouTube Upload（MP4 を PUT してアップロード）
 ```
 
 ## 前提条件
@@ -35,6 +42,7 @@ RSS Feed Trigger（投資ニュースの RSS を監視）
 起動：
 
 ```bash
+$ chmod -R 755 assets
 $ docker compose up -d
 ```
 
@@ -217,9 +225,171 @@ Role: User 向け Prompt
 {{$json.articleBody}}
 ```
 
-## 7. Send Email を設定する
+## 7. Create ssml を設定する
+
+<img width="1728" height="818" alt="スクリーンショット 2025-12-17 18 41 07" src="https://github.com/user-attachments/assets/fb748fc6-4f42-4700-b781-31a1d5d78ef7" />
+
+- Node: **Code**
+  - Mode
+    - `Run Once for All Items`
+  - Language
+    - `JavaScript`
+  - JavaScript
+    - 下記コードをコピペ
+
+```js
+const text = $json.output?.[0]?.content?.[0]?.text ?? "";
+if (!text) throw new Error("要約テキストが空です");
+
+const escapeForSsml = (s) =>
+  s
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const safe = escapeForSsml(text).replace(/\n+/g, " ");
+const ssml = `<speak>${safe.replace(/。/g, '。<break time="250ms"/>')}</speak>`;
+
+// ★HTTP Requestでそのまま送れる「JSON文字列」を作る
+const ttsBody = JSON.stringify({
+  input: { ssml },
+  voice: { languageCode: "ja-JP", name: "ja-JP-Neural2-B" },
+  audioConfig: { audioEncoding: "MP3", speakingRate: 1.03 },
+});
+
+return [{ json: { ...$json, ssml, ttsBody } }];
+```
+
+## 8. Generate TTS を設定する
 
 ### 事前準備（認証情報の取得）
+
+※ Google の 「Text-to-Speech AI」を使用するための「サービスアカウント」が必要
+
+#### Google Cloud にログイン
+
+https://console.cloud.google.com/
+
+#### サービスアカウントを作成
+
+<img width="1736" height="872" alt="スクリーンショット 2025-12-16 23 51 53" src="https://github.com/user-attachments/assets/46ffd180-e02c-484a-8c44-4179c6ec75d9" />
+
+<img width="1731" height="815" alt="スクリーンショット 2025-12-17 18 44 48" src="https://github.com/user-attachments/assets/12e666a5-4f6d-4879-b20c-03b68cf0229b" />
+
+<img width="1731" height="818" alt="スクリーンショット 2025-12-17 18 46 54" src="https://github.com/user-attachments/assets/8a3d015d-b8f4-44b0-be3c-d1be33ce11e9" />
+
+<img width="565" height="393" alt="スクリーンショット 2025-12-17 18 54 59" src="https://github.com/user-attachments/assets/b4f7c61b-ce50-44ce-93c1-4c9b44de9340" />
+
+<img width="570" height="358" alt="スクリーンショット 2025-12-17 18 53 09" src="https://github.com/user-attachments/assets/0079565f-0e79-44ac-b447-42a5c9dcf749" />
+
+<img width="566" height="340" alt="スクリーンショット 2025-12-17 18 55 52" src="https://github.com/user-attachments/assets/6ff386ef-1266-4672-b2c9-df1d8fee6ab0" />
+
+<img width="1735" height="810" alt="スクリーンショット 2025-12-17 18 58 09" src="https://github.com/user-attachments/assets/992cfa1e-a7b4-4b90-a8c1-2c00389c219a" />
+
+
+1. 左サイドバー → 「API とサービス」 → 「有効な API とサービス」へと進む
+2. 「Clout Text-to-Speech API」で検索
+3. 「有効にする」をクリック
+4. 「認証情報」 → 「サービスアカウントを管理」→「サービスアカウントを作成」へと進み、各種情報を入力し「作成」をクリック
+5. 作成されたサービスアカウントの詳細ページを開き、「鍵」→「キーを追加」→「新しい鍵を作成」→「JSON」→「作成」をクリック
+6. PC にダウンロードされた `.json` ファイルから「private_key」と「client_email」をコピー
+
+```json
+{
+  "type": "service_account",
+  "project_id": "**********",
+  "private_key_id": "**********",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n**********=\n-----END PRIVATE KEY-----\n",
+  "client_email": "*********@***************.iam.gserviceaccount.com",
+  "client_id": "**********",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/**********.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+
+```
+
+### n8n 側の設定
+
+<img width="1731" height="808" alt="スクリーンショット 2025-12-17 18 41 35" src="https://github.com/user-attachments/assets/72e7bba3-2e13-4fb7-bf91-aaf83d59edef" />
+
+- Node: **HTTP Request**
+  - Method
+    - `POST`
+  - URL
+    - `https://texttospeech.googleapis.com/v1/text:synthesize`
+  - Authentication
+    - `Authentication`
+      - `Predefined Credential Type`
+  - Credential Type
+    - `Google Service Account API`
+  - Google Service Account API
+    - `Create new credentials`
+      - Region
+        - `Asia Pacific (Tokyo) - asia-northeast1`
+      - Service Account Email
+        - 先述
+      - Private Key
+        - 先述
+      - Set up for use in HTTP Request node
+        - `On`
+      - Scope(s)
+        - `https://www.googleapis.com/auth/cloud-platform`
+      - Allowed HTTP Request Domains
+        - `All`
+  - Send Headers
+    - `On`
+  - Header Parameters
+    - Name
+      - `Content-Type`
+    - Value
+      - `application/json; charset=utf-8`
+  - Send Body
+    - `On`
+  - Body Content Type
+    - `RAW`
+  - Content Type
+    - `application/json`
+  - Body
+    - `{{$json.ttsBody}}`
+
+
+## 9. Generate MP4  を設定する
+
+<img width="1715" height="847" alt="スクリーンショット 2025-12-17 20 58 00" src="https://github.com/user-attachments/assets/152c0390-fb27-47cc-86c5-5e1dacf8eca3" />
+
+
+- Node: **HTTP Request**
+  - Method
+    - `POST`
+  - Authentication
+    - `None`
+  - URL
+    - `http://video-api:8000/generate`
+  - Send Body
+    - `On`
+  - Body Content Type
+    - `JSON`
+  - Specify Body
+    - `Using JSON`
+  - JSON
+    - 下記
+
+```json
+{
+  "audioContent": "{{$json.audioContent}}",
+  "imagePath": "/assets/avatar.png"
+}
+```
+
+## 10. Fetch Upload YouTube Location を設定する
+
+※ 動画ファイルアップロード先の Location を取得するためのノード
+
+### 事前準備（OAuth2 認証情報の取得）
 
 OAuth2 認証用に
 
@@ -234,19 +404,19 @@ https://console.cloud.google.com/
 
 #### クライアントの作成
 
+<img width="1737" height="861" alt="スクリーンショット 2025-12-17 21 05 05" src="https://github.com/user-attachments/assets/3e35cd02-0ce3-4f0f-8390-163c7e4d3123" />
+
 <img width="1736" height="872" alt="スクリーンショット 2025-12-16 23 51 53" src="https://github.com/user-attachments/assets/46ffd180-e02c-484a-8c44-4179c6ec75d9" />
 
-<img width="1735" height="849" alt="スクリーンショット 2025-12-16 23 52 27" src="https://github.com/user-attachments/assets/d042909d-ce68-474c-804e-c0229337f766" />
-
-<img width="1739" height="871" alt="スクリーンショット 2025-12-16 23 53 05" src="https://github.com/user-attachments/assets/6c32f24e-5675-49a3-98d1-aaba6e9c2e46" />
+<img width="1727" height="857" alt="スクリーンショット 2025-12-17 21 05 42" src="https://github.com/user-attachments/assets/5c03d553-1933-4531-ae40-aaa4f6f52f78" />
 
 <img width="1723" height="868" alt="スクリーンショット 2025-12-16 23 56 08" src="https://github.com/user-attachments/assets/d9e07bca-b74c-4b29-a3fd-e9eec5c0233b" />
 
 <img width="1727" height="873" alt="スクリーンショット 2025-12-16 23 56 37" src="https://github.com/user-attachments/assets/a0a1f5a3-5f49-41d2-813c-b232279e8f31" />
 
 1. 左サイドバー → 「API とサービス」 → 「有効な API とサービス」へと進む
-2. 「Gmail API」で検索
-3. 「管理」をクリック
+2. 「YouTube Data API v3」で検索
+3. 「有効にする」をクリック
 4. 「クライアント」 → 「クライアントの作成」と進み、各種情報を入力し「作成」をクリック
 5. 「クライアント ID」と「クライアントシークレット」を保存
 
@@ -260,45 +430,128 @@ https://console.cloud.google.com/
 
 ### n8n 側の設定
 
-<img width="1729" height="867" alt="スクリーンショット 2025-12-16 23 58 13" src="https://github.com/user-attachments/assets/31924533-e4a5-4175-8c85-9baf6f677f61" />
+<img width="1725" height="841" alt="スクリーンショット 2025-12-17 22 04 20" src="https://github.com/user-attachments/assets/a8320dbc-f93a-4711-9217-987dbdf3cb22" />
 
-<img width="492" height="758" alt="スクリーンショット 2025-12-17 0 00 23" src="https://github.com/user-attachments/assets/3546d73b-1c23-4764-b54e-dd4a1bdfe1cf" />
+<img width="1669" height="804" alt="スクリーンショット 2025-12-17 22 09 23" src="https://github.com/user-attachments/assets/66cc9382-4ea6-4e1d-9f6a-c8bb53ec3ace" />
 
-<img width="489" height="929" alt="スクリーンショット 2025-12-17 0 00 46" src="https://github.com/user-attachments/assets/ef1d42b7-e176-4cab-bd74-e5c9325320d9" />
+<img width="1714" height="833" alt="スクリーンショット 2025-12-17 22 11 18" src="https://github.com/user-attachments/assets/737c4c92-a4dc-4db5-b778-6070e2354d99" />
 
-<img width="1725" height="862" alt="スクリーンショット 2025-12-17 0 01 04" src="https://github.com/user-attachments/assets/5d4542a3-6d4d-4fa2-9939-60394e3f4238" />
+- Node: **HTTP Request**
+  - Method
+    - `POST`
+  - URL
+    - `https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`
+  - Authentication
+    - `Generic Credential Type`
+  - Generic Auth Type
+    - OAuth2 API
+  - OAuth2 API
+    - OAuth Redirect URL
+      - `http://localhost:5678/rest/oauth2-credential/callback`
+    - Grant Type
+      - `Authorization Code`
+    - Authorization URL
+      - `https://accounts.google.com/o/oauth2/v2/auth`
+    - Access Token URL *
+      - `https://oauth2.googleapis.com/token`
+    - Client ID
+      - 先述
+    - Client Secret
+      - 先述
+    - Scope
+      - `https://www.googleapis.com/auth/youtube.upload`
+    - Auth URI Query Parameters
+      - `access_type=offline`
+    - Authentication
+      - `Header`
+    - Allowed HTTP Request Domains
+      - All
+  - Send Headers
+    - `On`
+  - Specify Headers
+    - `Using Fields Below`
+  - Header Parameters
+    - Name
+      - `Content-Type`
+    - Value
+      - `application/json; charset=utf-8`
+    - Name
+      - `X-Upload-Content-Type`
+    - Value
+      - `video/mp4`
+  - Send Body
+    - `On`
+  - Body Content Type
+    - `JSON`
+  - Specify Body
+    - `Using JSON`
+  - JSON
+    - 下記
+  - Options
+    - Response
+      - Include Response Headers and Status
+        - `On`
 
-<img width="1724" height="856" alt="スクリーンショット 2025-12-17 1 33 50" src="https://github.com/user-attachments/assets/2c128452-7ead-4788-a21b-8fbd132d2467" />
+11. Merge を設定する
+
+※ 9で取得した MP4 データと10で取得した動画ファイルアップロード先の Location を一つの情報として一元化し、後続に繋げるためのノード。
+
+<img width="1719" height="844" alt="スクリーンショット 2025-12-17 22 19 20" src="https://github.com/user-attachments/assets/e798de1b-af46-4e72-8b20-3a1a077186d1" />
+
+- Node: **Merge**
+  - Mode
+    - `Combine`
+  - Combine By
+    - `Position`
+  - Number of Inputs
+    - `2`
+
+あとはノードの右にある「○」をクリックし、「Input1」「Input2」にそれぞれ接続。
+
+
+https://github.com/user-attachments/assets/1b8285e9-afb9-460a-a2d5-8b4edb16a9de
 
 
 
-- Node: **Gmail → Send a message**
-  - Credential to connect with
-    - Create new credentials
-      - Connect Using
-        - `OAuth2 (recommended)`
-      - Auth Redirect URL
-        - `http://localhost:5678/rest/oauth2-credential/callback`
-      - Client ID
-        - 先述
-      - Client Secret
-        - 先述
-      - Allowed HTTP Request Domains
-        - `all`
-  - Resource
-    - `Message`
-  - Operation
-    - `Send`
-  - To
-    - 自分のメールアドレス
-  - Subject
-    - `【投資ニュース要約】`
-  - Email Type
-    - `HTML`
-  - Message
-    - `{{$json.output[0].content[0].text}}`
 
-自分のメールアドレスに記事を要約した内容が届けば成功。
 
-<img width="1416" height="571" alt="スクリーンショット 2025-12-17 1 30 42" src="https://github.com/user-attachments/assets/e809f18b-1056-4e3c-9b4b-2adc5985f820" />
+12. YouTube Upload を設定する
 
+<img width="1719" height="838" alt="スクリーンショット 2025-12-17 22 28 54" src="https://github.com/user-attachments/assets/b3897da5-ec29-41bf-b207-740ab905d466" />
+
+- Node: **HTTP Request**
+  - Method
+    - `PUT`
+  - URL
+    - `{{$node["Fetch Upload YouTube Location"].json.headers.location}}`
+  - Authentication
+    - `None`
+  - Send Headers
+    - `On`
+  - Specify Headers
+    - `Using Fields Below`
+  - Header Parameters
+    - Name
+      - `Content-Type`
+    - Value
+      - `video/mp4`
+    - Name
+      - `X-Upload-Content-Type`
+    - Value
+      - `video/mp4`
+  - Send Body
+    - `On`
+  - Body Content Type
+    - `n8n Binary File`
+  - Input Data Field Name
+    - `data`
+
+## Excecute Workflow を実行する
+
+<img width="1730" height="839" alt="スクリーンショット 2025-12-17 22 59 15" src="https://github.com/user-attachments/assets/3503f48b-d599-44aa-bf9d-2bea166dff82" />
+
+「Excecute Workflow」ボタンをクリックし、ワークフローが完了するのを待つ。
+
+<img width="1728" height="842" alt="スクリーンショット 2025-12-17 23 01 04" src="https://github.com/user-attachments/assets/05e60edd-1862-4e6a-8440-f8a39a92fe64" />
+
+Youtube に動画が作成されていれば成功。
