@@ -546,12 +546,12 @@ https://github.com/user-attachments/assets/1b8285e9-afb9-460a-a2d5-8b4edb16a9de
   - Input Data Field Name
     - `data`
 
-## Excecute Workflow を実行する
+## Execute Workflow を実行する
 
 <img width="1730" height="839" alt="スクリーンショット 2025-12-17 22 59 15" src="https://github.com/user-attachments/assets/3503f48b-d599-44aa-bf9d-2bea166dff82" />
 
-「Excecute Workflow」ボタンをクリックし、ワークフローが完了するのを待つ。
+「Execute Workflow」ボタンをクリックし、ワークフローが完了するのを待つ。
 
 <img width="1728" height="842" alt="スクリーンショット 2025-12-17 23 01 04" src="https://github.com/user-attachments/assets/05e60edd-1862-4e6a-8440-f8a39a92fe64" />
 
-Youtube に動画が作成されていれば成功。
+Youtube に動画がアップロードされていれば成功。
