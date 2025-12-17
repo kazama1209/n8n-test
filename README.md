@@ -26,7 +26,7 @@ RSS Feed Trigger（投資ニュースの RSS を監視）
 → Generate MP4（音声 + 画像から MP4 作成）
 → Fetch Upload YouTube Location（Resumable Upload の Location を取得）
 → Merge（MP4 と Location を結合）
-→ YouTube Upload（MP4 を PUT してアップロード）
+→ YouTube Upload（MP4 を YouTube にアップロード）
 ```
 
 ## 前提条件
